@@ -68,12 +68,7 @@ of the same property.
 <unary-expr>       ::= <u-opt> <unary-expr> | <atom>
 <u-opt>            ::= "-" | "!"
 
-<atom>             ::= <non-app-arg> | <app-expr>
-
-<non-app-arg>      ::= <literal> | <v-expr> | "(" <expr> ")"
-
-<app-expr>         ::= <v-expr> <non-app-arg> <app-args>
-<app-args>         ::= ε | <non-app-arg> <app-args>
+<atom>             ::= <literal> | <v-expr> | "(" <expr> ")"
 
 <literal>          ::= <integer-literal> | "true" | "false"
 
