@@ -35,7 +35,6 @@ class Return[T]:
 @dataclass
 class ProcCall[T]:
     t: T
-    target: Var[T]
     func: Var[T]
     args: list[Expr[T]]
     
@@ -73,6 +72,6 @@ class Procedure[T]:
 class Module[T]:
     t: T
     name: Var[T]
-    defns: list[tuple[Var[T]]]
+    defns: list[Var[T]]
     procs: list[Procedure[T]]
     # module types / scoping not included
