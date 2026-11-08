@@ -1,0 +1,6 @@
+theory Example.
+require import Int.
+module M = {
+    var x : int :: private;
+}
+end Example.

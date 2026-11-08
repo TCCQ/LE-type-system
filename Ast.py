@@ -1,6 +1,7 @@
+from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Any
-from __future__ import annotations
+
 
 @dataclass
 class Literal[T]:

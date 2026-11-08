@@ -1,0 +1,10 @@
+module Crypto = {
+    var key : int :: private;
+    var counter : int :: public;
+
+    proc encrypt(m : int) : int = {
+        var out : int;
+        out <- m + key;
+        return out;
+    }
+}

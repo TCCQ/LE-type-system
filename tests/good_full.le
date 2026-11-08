@@ -1,0 +1,34 @@
+module M = {
+    var g : int :: public;
+    var result : int :: private;
+
+    proc compute(n : int) : int = {
+        var acc : int;
+        var i : int;
+        acc <- 0;
+        i <- 0;
+        while (i < n) {
+            acc <- acc + i;
+            i <- i + 1;
+        }
+
+        if (acc > 100) {
+            return acc;
+        } elif (acc > 50) {
+            return acc * 2;
+        } else {
+            return 0;
+        }
+    }
+
+    proc helper(x : int) : int = {
+        var tmp : int;
+        tmp <- x - 1;
+        return tmp;
+    }
+
+    proc go() : int = {
+        result <@ helper(5);
+        return result;
+    }
+}

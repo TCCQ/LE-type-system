@@ -1,0 +1,7 @@
+module M = {
+    var x : int :: public;
+    proc f(y : int) : int = {
+        x <- y ^ 1;
+        return x;
+    }
+}
