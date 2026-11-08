@@ -185,7 +185,7 @@ inputs that must fail).
 
 We need:
 
-- Parse the language into an AST
+- Parse the language into an AST (Done!)
 - check the AST for basic sanity
 - check the AST for low equivalence (disallow high to low assignment,
     more to come)
