@@ -103,6 +103,84 @@ https://stackoverflow.com/a/71519690
 There a lot of ways of encoding this but as far as I can see this is
 the cleanest.
 
+## Running the Parser and Test Suite
+
+All commands below are run from the project root
+(`~\LE-type-system`). The examples assume the
+project virtual environment lives at `.venv\`; adjust the interpreter
+path if yours is elsewhere.
+
+### Run the test suite
+
+```bat
+.venv\Scripts\python.exe -m pytest tests -v
+```
+
+The suite in `tests/test_examples.py` parses every file in `tests/`
+and asserts on the resulting AST (for the well-formed programs) or on
+the specific error and its source line (for the malformed ones). A green
+run looks like:
+
+```
+tests/test_examples.py::test_good_simple_module_shape PASSED
+tests/test_examples.py::test_good_simple_encrypt_body PASSED
+tests/test_examples.py::test_good_full_module_shape PASSED
+tests/test_examples.py::test_good_full_compute_statement_layout PASSED
+tests/test_examples.py::test_good_full_elif_is_desugared_into_nested_if PASSED
+tests/test_examples.py::test_good_full_helper_and_go PASSED
+tests/test_examples.py::test_bad_file[bad_theory.le-...] PASSED
+tests/test_examples.py::test_bad_file[bad_operator.le-...] PASSED
+tests/test_examples.py::test_bad_file[bad_syntax.le-...] PASSED
+
+============================== 9 passed in 0.05s ==============================
+```
+
+### Run a single file through the parser
+
+Any source file can be fed to the parser directly to see the AST it
+produces. The CLI entry point is `__main__.py`; pass `--dump-ast` to
+pretty-print the parsed modules:
+
+```bat
+.venv\Scripts\python.exe __main__.py tests\good_simple.le --dump-ast
+```
+
+This prints the full `Module` tree — including `Procedure`, `Block`, and
+`Statement` nodes — and exits with code `0` on success.
+
+For a malformed or unsupported input the parser instead writes a single
+`file:line:column: error: …` line to **stderr** and exits with code
+`1`:
+
+```bat
+.venv\Scripts\python.exe __main__.py tests\bad_theory.le
+:: tests\bad_theory.le:1:1: error: theory blocks are not supported (...)
+
+.venv\Scripts\python.exe __main__.py tests\bad_operator.le
+:: tests\bad_operator.le:4:16: error: exponentiation '^' is not part of the BNF (...)
+
+.venv\Scripts\python.exe __main__.py tests\bad_syntax.le
+:: tests\bad_syntax.le:3:5: error: expected ';' after module variable definition (...)
+```
+
+### Example files
+
+The `tests/` directory holds one file per behavior the parser is
+expected to handle, and each is wired into `tests/test_examples.py`:
+
+| File | Parses? | Demonstrates |
+|------|---------|--------------|
+| `good_simple.le`        | yes | Minimal module: two global vars, one proc with a local var, an assignment, and a `return`. |
+| `good_full.le`          | yes | `while`, `if`/`elif`/`else` (desugared to nested `If`), local variables, and a `dst <@ proc(args)` call. |
+| `bad_theory.le`         | no  | EasyCrypt `theory` / `require` / `end` preamble — rejected by the lexer. |
+| `bad_operator.le`       | no  | An operator outside the BNF (`^`) — rejected by the lexer. |
+| `bad_syntax.le`         | no  | A missing `;` after a module variable — rejected by the parser. |
+
+To add a new case, drop a file in `tests/` and register it in
+`tests/test_examples.py` (as a new `test_...` function for well-formed
+inputs, or as a new row in the `@pytest.mark.parametrize` table for
+inputs that must fail).
+
 ## General path
 
 We need:
