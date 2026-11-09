@@ -10,35 +10,37 @@ class PrimType:
 class ClearenceLabel:
     public: bool                # just 2 values for now
 
+# type + label as given in the source program. Parsed directly
 @dataclass
 class NominalType:
     t: PrimType
     label: ClearenceLabel
 
+# Blocks etc have no type, variables have nominal 
+type InputType = NominalType | None
+
 ######################################################################
 
 @dataclass
 class PCAdjust:
-    pcl: ClearenceLabel
-    l: Label
+    pcl: ClearenceLabel         # label from control flow
+    l: CheckedLabel
 
-type Label = ClearenceLabel | PCAdjust
+type CheckedLabel = ClearenceLabel | PCAdjust
 
 @dataclass
 class LiteralDeriv:
     t: PrimType
 
-type CheckedType = PrimType
-
-@dataclass
-class CheckedLT:
-    l: Label
-    t: CheckedType
+# @dataclass
+# class CheckedLT:
+#     l: CheckedLabel
+#     t: CheckedType
     
 @dataclass
 class VarDeriv:
     t: CheckedType
-    l: Label
+    l: CheckedLabel
     n: str
 
 @dataclass
@@ -56,7 +58,9 @@ type Deriv = LiteralDeriv | VarDeriv | OptDeriv
 class AssignDeriv:
     left: VarDeriv
     right: Deriv
+    then: StatementDeriv
     # must match t and <= l
+    # seq at start, child after
 
 @dataclass
 class ReturnDeriv:
@@ -71,14 +75,18 @@ class ProcCallDeriv:
 @dataclass
 class IfDeriv:
     cd: Deriv
-    ld: Deriv
-    rd: Deriv
+    ld: BlockDeriv
+    rd: BlockDeriv
     rt: Optional[ReturnDeriv]
+    then: StatementDeriv
+    # appies at start, have child after
 
 @dataclass
 class WhileDeriv:
+    # applies at end, have child before
+    prior: StatementDeriv
     cd: Deriv
-    bd: Deriv
+    bd: BlockDeriv
     rt: Optional[ReturnDeriv]
 
 type StatementDeriv = AssignDeriv | ReturnDeriv | IfDeriv | WhileDeriv | ProcCallDeriv
@@ -87,7 +95,7 @@ type StatementDeriv = AssignDeriv | ReturnDeriv | IfDeriv | WhileDeriv | ProcCal
 class BlockDeriv:
     rt: Optional[ReturnDeriv]
     localDefs: list[VarDeriv]
-    statements: list[StatementDeriv]
+    statements: StatementDeriv
 
 @dataclass
 class ProcedureDeriv:
@@ -101,3 +109,13 @@ class ModuleDeriv:
     name: str
     defns: list[VarDeriv]
     procs: list[ProcedureDeriv]
+
+type TopDeriv = BlockDeriv | ProcedureDeriv | ModuleDeriv
+
+# all Ast contructions have CheckedType
+@dataclass
+class CheckedType:
+    t: PrimType
+    d: Deriv | StatementDeriv | TopDeriv
+type OutputType = CheckedType
+
