@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Optional, Any
-from __future__ import annotations
 
 @dataclass
 class PrimType:
@@ -115,7 +116,7 @@ type TopDeriv = BlockDeriv | ProcedureDeriv | ModuleDeriv
 # all Ast contructions have CheckedType
 @dataclass
 class CheckedType:
-    t: PrimType
+    t: PrimType | None
     d: Deriv | StatementDeriv | TopDeriv
 type OutputType = CheckedType
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from Ast import (
     Assign,
@@ -25,6 +24,7 @@ from Lexer import (
     TokenKind,
     tokenize,
 )
+from Types import ClearenceLabel, InputType, NominalType, PrimType
 
 
 class ParseError(Exception):
@@ -34,7 +34,9 @@ class ParseError(Exception):
         self.column = column
 
 
-T = Any
+T = InputType
+
+PUBLIC_LABEL = ClearenceLabel(public=True)
 
 
 @dataclass
@@ -134,17 +136,17 @@ class Parser:
         self.expect(TokenKind.VAR, "'var'")
         names = self.parse_name_list()
         self.expect(TokenKind.COLON, "':' after variable name list")
-        self.parse_type()
+        typ = self.parse_type()
         self.expect(TokenKind.COLONCOLON, "'::' after type")
-        self.parse_visibility()
+        label = self.parse_visibility()
         self.expect(TokenKind.SEMICOLON, "';' after module variable definition")
-        return [Var(t=None, name=n) for n in names]
+        return [Var(t=NominalType(typ, label), name=n) for n in names]
 
-    def parse_visibility(self) -> str:
+    def parse_visibility(self) -> ClearenceLabel:
         tok = self.peek()
         if tok.kind in (TokenKind.PUBLIC, TokenKind.PRIVATE):
             self.pos += 1
-            return tok.lexeme
+            return ClearenceLabel(public=tok.kind == TokenKind.PUBLIC)
         raise self._unexpected("'public' or 'private'")
 
     def parse_proc_defn(self) -> Procedure[T]:
@@ -157,11 +159,13 @@ class Parser:
         self.expect(TokenKind.RPAREN, "')' after procedure arguments")
 
         self.expect(TokenKind.COLON, "':' after procedure signature")
-        rt = self.parse_type()
+        rt = NominalType(self.parse_type(), PUBLIC_LABEL)
 
         self.expect(TokenKind.EQ, "'=' before procedure body")
         body = self.parse_block()
-        return Procedure(t=None, name=name, argts=[], rt=rt, args=args, body=body)
+        return Procedure(
+            t=None, name=name, argts=[a.t for a in args], rt=rt, args=args, body=body
+        )
 
     def parse_p_args(self) -> list[Var[T]]:
         args: list[Var[T]] = []
@@ -175,29 +179,32 @@ class Parser:
     def parse_p_arg(self) -> Var[T]:
         name_tok = self.expect(TokenKind.IDENTIFIER, "argument name")
         self.expect(TokenKind.COLON, "':' after argument name")
-        self.parse_type()
-        return Var(t=None, name=name_tok.lexeme)
+        typ = self.parse_type()
+        return Var(t=NominalType(typ, PUBLIC_LABEL), name=name_tok.lexeme)
 
     # ------------------------------------------------------------------
     # types
     # ------------------------------------------------------------------
 
-    def parse_type(self) -> Any:
-        self.parse_base_type()
+    def parse_type(self) -> PrimType:
+        pt = self.parse_base_type()
         while self.match(TokenKind.LIST):
-            pass
-        return None
+            pt += " list"
+        return PrimType(pt)
 
-    def parse_base_type(self) -> Any:
-        if self.match(TokenKind.INT):
-            return None
-        if self.match(TokenKind.BOOL):
-            return None
-        if self.check(TokenKind.IDENTIFIER):
+    def parse_base_type(self) -> str:
+        tok = self.peek()
+        if tok.kind in (TokenKind.INT, TokenKind.BOOL):
             self.pos += 1
+            return tok.lexeme
+        if tok.kind == TokenKind.IDENTIFIER:
+            self.pos += 1
+            name = tok.lexeme
             if self.match(TokenKind.DOT):
-                self.expect(TokenKind.IDENTIFIER, "type name after '.'")
-            return None
+                name += "." + self.expect(
+                    TokenKind.IDENTIFIER, "type name after '.'"
+                ).lexeme
+            return name
         raise self._unexpected("type")
 
     # ------------------------------------------------------------------
@@ -217,9 +224,11 @@ class Parser:
             self.expect(TokenKind.VAR)
             names = self.parse_name_list()
             self.expect(TokenKind.COLON, "':' after local variable name list")
-            self.parse_type()
+            typ = self.parse_type()
             self.expect(TokenKind.SEMICOLON, "';' after local variable declaration")
-            defs.extend(Var(t=None, name=n) for n in names)
+            defs.extend(
+                Var(t=NominalType(typ, PUBLIC_LABEL), name=n) for n in names
+            )
         return defs
 
     def parse_name_list(self) -> list[str]:
