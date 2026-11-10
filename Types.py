@@ -56,12 +56,10 @@ class OptDeriv:
 type Deriv = LiteralDeriv | VarDeriv | OptDeriv
 
 @dataclass
-class AssignDeriv:
-    left: VarDeriv
-    right: Deriv
-    then: StatementDeriv
-    # must match t and <= l
-    # seq at start, child after
+class AssignsDeriv:
+    asns: list[tuple[VarDeriv, Deriv]]
+    after: bool                 # true for tail then asns, false for asns then tail
+    tail: StatementDeriv
 
 @dataclass
 class ReturnDeriv:
@@ -90,7 +88,7 @@ class WhileDeriv:
     bd: BlockDeriv
     rt: Optional[ReturnDeriv]
 
-type StatementDeriv = AssignDeriv | ReturnDeriv | IfDeriv | WhileDeriv | ProcCallDeriv
+type StatementDeriv = AssignsDeriv | ReturnDeriv | IfDeriv | WhileDeriv | ProcCallDeriv
     
 @dataclass
 class BlockDeriv:
