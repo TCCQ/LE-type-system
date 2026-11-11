@@ -128,10 +128,11 @@ def check_call(
     s: ProcCall[InputType], env: Env
 ) -> tuple[ProcCall[OutputType], StatementDeriv]:
     # TODO: resolve procedure signatures
+    dst = check_var(s.dst, env)
     func = check_var(s.func, env)
     args = [check_expr(a, env) for a in s.args]
     d = ProcCallDeriv(func=_var(func), ads=[_expr(a) for a in args], tail=SkipDeriv())
-    return ProcCall(t=CheckedType(t=None, d=d), func=func, args=args), d
+    return ProcCall(t=CheckedType(t=None, d=d), dst=dst, func=func, args=args), d
 
 
 def check_return(

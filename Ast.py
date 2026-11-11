@@ -36,6 +36,7 @@ class Return[T]:
 @dataclass
 class ProcCall[T]:
     t: T
+    dst: Var[T]
     func: Var[T]
     args: list[Expr[T]]
     

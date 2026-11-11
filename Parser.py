@@ -275,7 +275,7 @@ class Parser:
         self.expect(TokenKind.LPAREN, "'(' after procedure name")
         args = self.parse_c_args()
         self.expect(TokenKind.RPAREN, "')' after call arguments")
-        return ProcCall(t=None, func=func, args=args)
+        return ProcCall(t=None, dst=dst, func=func, args=args)
 
     def parse_c_args(self) -> list[Expr[T]]:
         args: list[Expr[T]] = []

@@ -23,6 +23,8 @@ from Ast import (
 )
 from Lexer import LexError
 from Parser import ParseError, parse
+from Pretty import print_input, print_output_max, print_output_min
+from Typecheck import check_program
 
 
 EXAMPLES = PROJECT_ROOT / "tests"
@@ -131,6 +133,7 @@ def test_good_full_helper_and_go():
 
     call, ret = go.body.statements
     assert isinstance(call, ProcCall)
+    assert call.dst.name == "result"
     assert call.func.name == "helper"
     assert len(call.args) == 1
     assert isinstance(call.args[0], Literal)
@@ -138,6 +141,30 @@ def test_good_full_helper_and_go():
 
     assert isinstance(ret, Return)
     assert isinstance(ret.val, Var) and ret.val.name == "result"
+
+
+# ---------------------------------------------------------------------------
+# pretty printing
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("filename", ["good_simple.le", "good_full.le"])
+def test_printers_match_and_round_trip(filename):
+    parsed = _parse_good(filename)
+    rendered = print_input(parsed)
+
+    checked = check_program(parsed)
+    assert print_output_min(checked) == rendered
+
+    assert print_input(parse(rendered)) == rendered
+    assert print_output_min(check_program(parse(rendered))) == rendered
+
+
+def test_deriv_printer_includes_derivation_tree():
+    parsed = _parse_good("good_full.le")
+    rendered = print_output_max(check_program(parsed))
+    assert "ModuleDeriv" in rendered
+    assert "WhileDeriv" in rendered
+    assert "IfDeriv" in rendered
 
 
 # ---------------------------------------------------------------------------

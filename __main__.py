@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import argparse
 import sys
-from pprint import pprint
 
 from Lexer import LexError
 from Parser import ParseError, parse
+from Pretty import print_input, print_output_max, print_output_min
 from Typecheck import TypecheckError, check_program
 
 
@@ -20,12 +20,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("file", help="source file, or '-' for stdin")
     ap.add_argument(
-        "--dump-ast", action="store_true", help="pretty-print the parsed AST"
+        "--dump-ast",
+        action="store_true",
+        help="pretty-print the parsed AST in source syntax",
     )
     ap.add_argument(
         "--dump-output-ast",
         action="store_true",
-        help="pretty-print the typechecked AST",
+        help="pretty-print the typechecked AST in source syntax",
+    )
+    ap.add_argument(
+        "--dump-deriv-ast",
+        action="store_true",
+        help="pretty-print the typechecked AST with full derivation trees",
     )
     args = ap.parse_args(argv)
 
@@ -49,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if args.dump_ast:
-        pprint(modules)
+        print(print_input(modules))
 
     try:
         checked = check_program(modules)
@@ -57,8 +64,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{filename}: error: {e}", file=sys.stderr)
         return 1
 
+    dumps: list[str] = []
     if args.dump_output_ast:
-        pprint(checked)
+        dumps.append(print_output_min(checked))
+    if args.dump_deriv_ast:
+        dumps.append(print_output_max(checked))
+    if dumps:
+        if args.dump_ast:
+            print()
+        print("\n\n".join(dumps))
     return 0
 
 

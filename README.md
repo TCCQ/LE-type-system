@@ -139,14 +139,23 @@ tests/test_examples.py::test_bad_file[bad_syntax.le-...] PASSED
 
 Any source file can be fed to the parser directly to see the AST it
 produces. The CLI entry point is `__main__.py`; pass `--dump-ast` to
-pretty-print the parsed modules:
+pretty-print the parsed modules in source syntax:
 
 ```bat
 .venv\Scripts\python.exe __main__.py tests\good_simple.le --dump-ast
 ```
 
-This prints the full `Module` tree — including `Procedure`, `Block`, and
-`Statement` nodes — and exits with code `0` on success.
+`--dump-output-ast` prints the typechecked AST in the same source syntax
+(using minimal types), so its output matches the parsed input.
+`--dump-deriv-ast` prints the typechecked AST with the full derivation
+trees attached, which is useful for debugging the typechecker:
+
+```bat
+.venv\Scripts\python.exe __main__.py tests\good_full.le --dump-output-ast
+.venv\Scripts\python.exe __main__.py tests\good_full.le --dump-deriv-ast
+```
+
+All three flags exit with code `0` on success.
 
 For a malformed or unsupported input the parser instead writes a single
 `file:line:column: error: …` line to **stderr** and exits with code
