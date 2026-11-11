@@ -1,0 +1,322 @@
+from __future__ import annotations
+from dataclasses import replace
+from typing import cast
+
+from Ast import *
+from Types import *
+
+# TODO: clearance labels / pc tracking
+_PUBLIC = ClearenceLabel(public=True)
+_UNKNOWN = PrimType("?")
+
+type Env = dict[str, VarDeriv]
+
+
+class TypecheckError(Exception):
+    pass
+
+
+def _ty(t: PrimType | None) -> CheckedType:
+    return CheckedType(t=t, d=LiteralDeriv(t or _UNKNOWN))
+
+
+def _nom(t: InputType) -> tuple[PrimType | None, ClearenceLabel]:
+    if isinstance(t, NominalType):
+        return t.t, t.label
+    return None, _PUBLIC
+
+
+def _decl(v: Var[InputType]) -> tuple[Var[OutputType], VarDeriv]:
+    t, l = _nom(v.t)
+    d = VarDeriv(t=_ty(t), l=l, n=v.name)
+    return Var(t=CheckedType(t=t, d=d), name=v.name), d
+
+
+def _name(n: str) -> Var[OutputType]:
+    return Var(t=CheckedType(t=None, d=VarDeriv(t=_ty(None), l=_PUBLIC, n=n)), name=n)
+
+
+def _expr(e: Expr[OutputType]) -> Deriv:
+    return cast(Deriv, e.t.d)
+
+
+def _var(v: Var[OutputType]) -> VarDeriv:
+    return cast(VarDeriv, v.t.d)
+
+
+def _block(b: Block[OutputType]) -> BlockDeriv:
+    return cast(BlockDeriv, b.t.d)
+
+
+_ARITH = {"+", "-", "*", "/", "%/"}
+_COMP = {"<", "<=", ">", ">=", "=", "<>"}
+_LOGIC = {"&&", "||"}
+
+
+def _opt_type(op: str, l: PrimType | None, r: PrimType | None) -> PrimType | None:
+    if op in _ARITH:
+        return PrimType("int")
+    if op in _COMP or op in _LOGIC or op == "!":
+        return PrimType("bool")
+    return r or l
+
+
+def check_literal(e: Literal[InputType]) -> Literal[OutputType]:
+    t, _ = _nom(e.t)
+    if isinstance(e.value, bool):
+        t = PrimType("bool")
+    elif isinstance(e.value, int):
+        t = PrimType("int")
+    return Literal(t=CheckedType(t=t, d=LiteralDeriv(t or _UNKNOWN)), value=e.value)
+
+
+def check_var(v: Var[InputType], env: Env) -> Var[OutputType]:
+    decl = env.get(v.name)
+    if decl is None:
+        t, l = _nom(v.t)
+        decl = VarDeriv(t=_ty(t), l=l, n=v.name)
+    t = decl.t.t
+    d = VarDeriv(t=CheckedType(t=t, d=decl), l=decl.l, n=v.name)
+    return Var(t=CheckedType(t=t, d=d), name=v.name)
+
+
+def check_opt(e: Opt[InputType], env: Env) -> Opt[OutputType]:
+    l = check_expr(e.left, env) if e.left is not None else None
+    r = check_expr(e.right, env)
+    t = _opt_type(e.name, l.t.t if l else None, r.t.t)
+    d = OptDeriv(name=e.name, left=_expr(l) if l else None, right=_expr(r))
+    return Opt(t=CheckedType(t=t, d=d), name=e.name, left=l, right=r)
+
+
+def check_expr(e: Expr[InputType], env: Env) -> Expr[OutputType]:
+    if isinstance(e, Literal):
+        return check_literal(e)
+    if isinstance(e, Var):
+        return check_var(e, env)
+    return check_opt(e, env)
+
+
+def check_assign(
+    s: Assign[InputType], env: Env
+) -> tuple[Assign[OutputType], StatementDeriv]:
+    left = check_var(s.left, env)
+    right = check_expr(s.right, env)
+    d = AssignsDeriv(asns=[(_var(left), _expr(right))], after=False, tail=SkipDeriv())
+    return Assign(t=CheckedType(t=None, d=d), left=left, right=right), d
+
+
+def check_if(s: If[InputType], env: Env) -> tuple[If[OutputType], StatementDeriv]:
+    cond = check_expr(s.condition, env)
+    tArm = check_block(s.tArm, env)
+    fArm = check_block(s.fArm, env)
+    d = IfDeriv(
+        cd=_expr(cond), ld=_block(tArm), rd=_block(fArm), rt=None, then=SkipDeriv()
+    )
+    return If(t=CheckedType(t=None, d=d), condition=cond, tArm=tArm, fArm=fArm), d
+
+
+def check_while(
+    s: While[InputType], env: Env
+) -> tuple[While[OutputType], StatementDeriv]:
+    cond = check_expr(s.condition, env)
+    body = check_block(s.body, env)
+    d = WhileDeriv(prior=SkipDeriv(), cd=_expr(cond), bd=_block(body), rt=None)
+    return While(t=CheckedType(t=None, d=d), condition=cond, body=body), d
+
+
+def check_call(
+    s: ProcCall[InputType], env: Env
+) -> tuple[ProcCall[OutputType], StatementDeriv]:
+    # TODO: resolve procedure signatures
+    func = check_var(s.func, env)
+    args = [check_expr(a, env) for a in s.args]
+    d = ProcCallDeriv(func=_var(func), ads=[_expr(a) for a in args], tail=SkipDeriv())
+    return ProcCall(t=CheckedType(t=None, d=d), func=func, args=args), d
+
+
+def check_return(
+    s: Return[InputType], env: Env
+) -> tuple[Return[OutputType], StatementDeriv]:
+    # TODO: returns are ignored for now
+    val = check_expr(s.val, env)
+    return Return(t=CheckedType(t=None, d=SkipDeriv()), val=val), SkipDeriv()
+
+
+def check_statement(
+    s: Statement[InputType], env: Env
+) -> tuple[Statement[OutputType], StatementDeriv]:
+    if isinstance(s, Assign):
+        return check_assign(s, env)
+    if isinstance(s, If):
+        return check_if(s, env)
+    if isinstance(s, While):
+        return check_while(s, env)
+    if isinstance(s, ProcCall):
+        return check_call(s, env)
+    return check_return(s, env)
+
+
+def _asns(d: StatementDeriv) -> list[tuple[VarDeriv, Deriv]]:
+    return cast(AssignsDeriv, d).asns
+
+
+# Deriv coverage: While = prior;while, Assigns = asns;tail or tail;asns,
+# If/Call = node;tail.
+def _build(
+    stmts: list[Statement[InputType]],
+    ds: list[StatementDeriv],
+    lo: int,
+    hi: int,
+    nodes: list[StatementDeriv],
+) -> StatementDeriv:
+    if lo >= hi:
+        return SkipDeriv()
+
+    if isinstance(stmts[hi - 1], While):
+        prior = _build(stmts, ds, lo, hi - 1, nodes)
+        wlocal = cast(WhileDeriv, ds[hi - 1])
+        wd = WhileDeriv(prior=prior, cd=wlocal.cd, bd=wlocal.bd, rt=wlocal.rt)
+        nodes[hi - 1] = wd
+        return wd
+
+    k = hi
+    while k > lo and isinstance(stmts[k - 1], Assign):
+        k -= 1
+    if k < hi and k > lo and isinstance(stmts[k - 1], While):
+        prior = _build(stmts, ds, lo, k - 1, nodes)
+        wlocal = cast(WhileDeriv, ds[k - 1])
+        wd = WhileDeriv(prior=prior, cd=wlocal.cd, bd=wlocal.bd, rt=wlocal.rt)
+        nodes[k - 1] = wd
+        after_asns: list[tuple[VarDeriv, Deriv]] = []
+        for i in range(k, hi):
+            after_asns.extend(_asns(ds[i]))
+        ad = AssignsDeriv(asns=after_asns, after=True, tail=wd)
+        for i in range(k, hi):
+            nodes[i] = ad
+        return ad
+
+    if isinstance(stmts[lo], If):
+        tail = _build(stmts, ds, lo + 1, hi, nodes)
+        if_local = cast(IfDeriv, ds[lo])
+        idd = IfDeriv(
+            cd=if_local.cd,
+            ld=if_local.ld,
+            rd=if_local.rd,
+            rt=if_local.rt,
+            then=tail,
+        )
+        nodes[lo] = idd
+        return idd
+
+    if isinstance(stmts[lo], ProcCall):
+        tail = _build(stmts, ds, lo + 1, hi, nodes)
+        call_local = cast(ProcCallDeriv, ds[lo])
+        cd = ProcCallDeriv(func=call_local.func, ads=call_local.ads, tail=tail)
+        nodes[lo] = cd
+        return cd
+
+    if isinstance(stmts[lo], Assign):
+        j = lo
+        leading_asns: list[tuple[VarDeriv, Deriv]] = []
+        while j < hi and isinstance(stmts[j], Assign):
+            leading_asns.extend(_asns(ds[j]))
+            j += 1
+        tail = _build(stmts, ds, j, hi, nodes)
+        ad = AssignsDeriv(asns=leading_asns, after=False, tail=tail)
+        for i in range(lo, j):
+            nodes[i] = ad
+        return ad
+
+    # TODO: while followed by a non-assignment is not supported yet
+    raise TypecheckError(
+        "unsupported statement order: while followed by non-assignment"
+    )
+
+
+def _compose(
+    stmts: list[Statement[InputType]], ds: list[StatementDeriv]
+) -> tuple[StatementDeriv, list[StatementDeriv]]:
+    nodes: list[StatementDeriv] = [SkipDeriv() for _ in stmts]
+    return _build(stmts, ds, 0, len(stmts), nodes), nodes
+
+
+def check_statements(
+    stmts: list[Statement[InputType]], env: Env
+) -> tuple[list[Statement[OutputType]], StatementDeriv]:
+    outs: list[Statement[OutputType]] = []
+    ds: list[StatementDeriv] = []
+    for s in stmts:
+        out, d = check_statement(s, env)
+        outs.append(out)
+        ds.append(d)
+
+    keep = [i for i, s in enumerate(stmts) if not isinstance(s, Return)]
+    chain, nodes = _compose([stmts[i] for i in keep], [ds[i] for i in keep])
+    mapped: list[StatementDeriv] = [SkipDeriv() for _ in stmts]
+    for j, i in enumerate(keep):
+        mapped[i] = nodes[j]
+    outs = [replace(s, t=CheckedType(t=None, d=mapped[i])) for i, s in enumerate(outs)]
+    return outs, chain
+
+
+def check_block(b: Block[InputType], env: Env) -> Block[OutputType]:
+    local = dict(env)
+    defs: list[Var[OutputType]] = []
+    ds: list[VarDeriv] = []
+    for v in b.localDefs:
+        out, d = _decl(v)
+        defs.append(out)
+        ds.append(d)
+        local[v.name] = d
+    stmts, chain = check_statements(b.statements, local)
+    # TODO: returns
+    bd = BlockDeriv(rt=None, localDefs=ds, statements=chain)
+    return Block(t=CheckedType(t=None, d=bd), localDefs=defs, statements=stmts)
+
+
+def check_proc(p: Procedure[InputType], env: Env) -> Procedure[OutputType]:
+    local = dict(env)
+    args: list[Var[OutputType]] = []
+    ads: list[VarDeriv] = []
+    for a in p.args:
+        out, d = _decl(a)
+        args.append(out)
+        ads.append(d)
+        local[a.name] = d
+    body = check_block(p.body, local)
+    t, _ = _nom(p.rt)
+    pd = ProcedureDeriv(
+        name=p.name.name, args=ads, rt=LiteralDeriv(t or _UNKNOWN), body=_block(body)
+    )
+    return Procedure(
+        t=CheckedType(t=None, d=pd),
+        name=_name(p.name.name),
+        argts=[a.t for a in args],
+        rt=_ty(t),
+        args=args,
+        body=body,
+    )
+
+
+def check_module(m: Module[InputType]) -> Module[OutputType]:
+    env: Env = {}
+    defs: list[Var[OutputType]] = []
+    ds: list[VarDeriv] = []
+    for v in m.defns:
+        out, d = _decl(v)
+        defs.append(out)
+        ds.append(d)
+        env[v.name] = d
+    procs = [check_proc(p, env) for p in m.procs]
+    md = ModuleDeriv(
+        name=m.name.name,
+        defns=ds,
+        procs=[cast(ProcedureDeriv, p.t.d) for p in procs],
+    )
+    return Module(
+        t=CheckedType(t=None, d=md), name=_name(m.name.name), defns=defs, procs=procs
+    )
+
+
+def check_program(ms: list[Module[InputType]]) -> list[Module[OutputType]]:
+    return [check_module(m) for m in ms]

@@ -70,6 +70,11 @@ class ReturnDeriv:
 class ProcCallDeriv:
     func: VarDeriv
     ads: list[Deriv]
+    tail: StatementDeriv
+
+@dataclass
+class SkipDeriv:
+    pass
     
 @dataclass
 class IfDeriv:
@@ -88,7 +93,7 @@ class WhileDeriv:
     bd: BlockDeriv
     rt: Optional[ReturnDeriv]
 
-type StatementDeriv = AssignsDeriv | ReturnDeriv | IfDeriv | WhileDeriv | ProcCallDeriv
+type StatementDeriv = AssignsDeriv | ReturnDeriv | IfDeriv | WhileDeriv | ProcCallDeriv | SkipDeriv
     
 @dataclass
 class BlockDeriv:

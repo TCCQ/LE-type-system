@@ -1,6 +1,6 @@
+from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Any
-from __future__ import annotations
 from Ast import *
 from Types import *
 
@@ -14,11 +14,7 @@ def prove_proc(top_goal: goal, proc: ProcedureDeriv) -> proof :
 
 def prove_block(top_goal: goal, block: BlockDeriv) -> proof:
     # append to goal based on local var labels
-    g = top_goal
-    ps = []
-    p = prove_statement(g, block.statements)
-    ps.append(p)
-    return "\n".join(ps)
+    return prove_statement(top_goal, block.statements)
 
 def prove_statement(top_goal: goal, stmt: StatementDeriv) -> proof:
     if isinstance(stmt,AssignsDeriv):
@@ -39,6 +35,11 @@ def prove_statement(top_goal: goal, stmt: StatementDeriv) -> proof:
         b = prove_block(top_goal, stmt.bd)
         return f"while ({top_goal}).\n{b}\n{p}"
     elif isinstance(stmt,ProcCallDeriv):
-        return "(* TODO procedure calls *)"
+        p = prove_statement(top_goal, stmt.tail)
+        return f"(* TODO procedure calls *)\n{p}"
+    elif isinstance(stmt,SkipDeriv):
+        return "skip."
+    else:
+        return ""
 
 
