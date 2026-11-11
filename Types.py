@@ -86,6 +86,14 @@ class IfDeriv:
     # appies at start, have child after
 
 @dataclass
+class OrderDeriv:
+    # produces seq 1. [first] [second]
+    # we need this to make the if and while rules available with their
+    # relative ordering requirements
+    first: StatementDeriv
+    second: StatementDeriv
+
+@dataclass
 class WhileDeriv:
     # applies at end, have child before
     prior: StatementDeriv
@@ -93,7 +101,7 @@ class WhileDeriv:
     bd: BlockDeriv
     rt: Optional[ReturnDeriv]
 
-type StatementDeriv = AssignsDeriv | ReturnDeriv | IfDeriv | WhileDeriv | ProcCallDeriv | SkipDeriv
+type StatementDeriv = AssignsDeriv | ReturnDeriv | IfDeriv | OrderDeriv | WhileDeriv | ProcCallDeriv | SkipDeriv
     
 @dataclass
 class BlockDeriv:

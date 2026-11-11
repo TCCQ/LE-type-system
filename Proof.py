@@ -39,6 +39,10 @@ def prove_statement(top_goal: goal, stmt: StatementDeriv) -> proof:
         return f"(* TODO procedure calls *)\n{p}"
     elif isinstance(stmt,SkipDeriv):
         return "skip."
+    elif isinstance(stmt,OrderDeriv):
+        f = prove_statement(top_goal, stmt.first)
+        s = prove_statement(top_goal, stmt.second)
+        return f"seq 1.\n{f}\n{s}"
     else:
         return ""
 

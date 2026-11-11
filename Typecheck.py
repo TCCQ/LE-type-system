@@ -160,8 +160,6 @@ def _asns(d: StatementDeriv) -> list[tuple[VarDeriv, Deriv]]:
     return cast(AssignsDeriv, d).asns
 
 
-# Deriv coverage: While = prior;while, Assigns = asns;tail or tail;asns,
-# If/Call = node;tail.
 def _build(
     stmts: list[Statement[InputType]],
     ds: list[StatementDeriv],
@@ -171,6 +169,15 @@ def _build(
 ) -> StatementDeriv:
     if lo >= hi:
         return SkipDeriv()
+
+    seen_while = False
+    for j in range(lo, hi):
+        if isinstance(stmts[j], While):
+            seen_while = True
+        elif seen_while and isinstance(stmts[j], (If, ProcCall)):
+            first = _build(stmts, ds, lo, j, nodes)
+            second = _build(stmts, ds, j, hi, nodes)
+            return OrderDeriv(first=first, second=second)
 
     if isinstance(stmts[hi - 1], While):
         prior = _build(stmts, ds, lo, hi - 1, nodes)
@@ -227,10 +234,7 @@ def _build(
             nodes[i] = ad
         return ad
 
-    # TODO: while followed by a non-assignment is not supported yet
-    raise TypecheckError(
-        "unsupported statement order: while followed by non-assignment"
-    )
+    raise TypecheckError("unsupported statement order")
 
 
 def _compose(
