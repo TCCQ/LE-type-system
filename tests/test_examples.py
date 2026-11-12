@@ -24,7 +24,7 @@ from Ast import (
 from Lexer import LexError
 from Parser import ParseError, parse
 from Pretty import print_input, print_output_max, print_output_min
-from Typecheck import check_program
+from Typecheck import ClearanceError, TypeMismatchError, check_program
 
 
 EXAMPLES = PROJECT_ROOT / "tests"
@@ -148,14 +148,17 @@ def test_good_full_helper_and_go():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("filename", ["good_simple.le", "good_full.le"])
-def test_printers_match_and_round_trip(filename):
-    parsed = _parse_good(filename)
+def test_input_printer_round_trips(filename):
+    rendered = print_input(_parse_good(filename))
+    assert print_input(parse(rendered)) == rendered
+
+
+def test_output_printer_matches_input():
+    parsed = _parse_good("good_full.le")
     rendered = print_input(parsed)
 
     checked = check_program(parsed)
     assert print_output_min(checked) == rendered
-
-    assert print_input(parse(rendered)) == rendered
     assert print_output_min(check_program(parse(rendered))) == rendered
 
 
@@ -165,6 +168,61 @@ def test_deriv_printer_includes_derivation_tree():
     assert "ModuleDeriv" in rendered
     assert "WhileDeriv" in rendered
     assert "IfDeriv" in rendered
+
+
+# ---------------------------------------------------------------------------
+# typechecking
+# ---------------------------------------------------------------------------
+
+def test_typecheck_rejects_private_to_public_assignment():
+    with pytest.raises(ClearanceError):
+        check_program(_parse_good("good_simple.le"))
+
+
+def test_typecheck_rejects_mismatched_assignment_types():
+    parsed = parse("""
+module M = {
+    proc f() : int = {
+        var x : int;
+        var b : bool;
+        x <- b;
+        return x;
+    }
+}
+""")
+    with pytest.raises(TypeMismatchError):
+        check_program(parsed)
+
+
+def test_typecheck_rejects_mismatched_call_destination():
+    parsed = parse("""
+module M = {
+    proc f() : bool = {
+        return true;
+    }
+    proc g() : int = {
+        var x : int;
+        x <@ f();
+        return x;
+    }
+}
+""")
+    with pytest.raises(TypeMismatchError):
+        check_program(parsed)
+
+
+def test_typecheck_allows_public_to_private_assignment():
+    parsed = parse("""
+module M = {
+    var secret : int :: private;
+    var pub : int :: public;
+    proc f() : int = {
+        secret <- pub;
+        return secret;
+    }
+}
+""")
+    check_program(parsed)
 
 
 # ---------------------------------------------------------------------------

@@ -10,9 +10,18 @@ _PUBLIC = ClearenceLabel(public=True)
 _UNKNOWN = PrimType("?")
 
 type Env = dict[str, VarDeriv]
+type ProcEnv = dict[str, Procedure[InputType]]
 
 
 class TypecheckError(Exception):
+    pass
+
+
+class TypeMismatchError(TypecheckError):
+    pass
+
+
+class ClearanceError(TypecheckError):
     pass
 
 
@@ -42,6 +51,48 @@ def _expr(e: Expr[OutputType]) -> Deriv:
 
 def _var(v: Var[OutputType]) -> VarDeriv:
     return cast(VarDeriv, v.t.d)
+
+
+def _join(a: ClearenceLabel, b: ClearenceLabel) -> ClearenceLabel:
+    # public is low, private is high; join keeps the higher label.
+    return ClearenceLabel(public=a.public and b.public)
+
+
+def _checked_label(l: CheckedLabel) -> ClearenceLabel:
+    if isinstance(l, ClearenceLabel):
+        return l
+    return _join(_checked_label(l.pcl), _checked_label(l.l))
+
+
+def _deriv_label(d: Deriv) -> ClearenceLabel:
+    if isinstance(d, LiteralDeriv):
+        return _PUBLIC
+    if isinstance(d, VarDeriv):
+        return _checked_label(d.l)
+    left = _deriv_label(d.left) if d.left is not None else _PUBLIC
+    return _join(left, _deriv_label(d.right))
+
+
+def _expr_label(e: Expr[OutputType]) -> ClearenceLabel:
+    return _deriv_label(_expr(e))
+
+
+def _check_assignable(
+    target: Var[OutputType],
+    source_t: PrimType | None,
+    source_l: ClearenceLabel,
+    where: str,
+) -> None:
+    target_t = target.t.t
+    if target_t is not None and source_t is not None and target_t.pt != source_t.pt:
+        raise TypeMismatchError(
+            f"{where}: expected type {target_t.pt}, got {source_t.pt}"
+        )
+    # Reject high (private) -> low (public).
+    if not source_l.public and _checked_label(_var(target).l).public:
+        raise ClearanceError(
+            f"{where}: private value cannot flow to public target"
+        )
 
 
 def _block(b: Block[OutputType]) -> BlockDeriv:
@@ -101,14 +152,19 @@ def check_assign(
 ) -> tuple[Assign[OutputType], StatementDeriv]:
     left = check_var(s.left, env)
     right = check_expr(s.right, env)
+    _check_assignable(
+        left, right.t.t, _expr_label(right), f"assignment to '{left.name}'"
+    )
     d = AssignsDeriv(asns=[(_var(left), _expr(right))], after=False, tail=SkipDeriv())
     return Assign(t=CheckedType(t=None, d=d), left=left, right=right), d
 
 
-def check_if(s: If[InputType], env: Env) -> tuple[If[OutputType], StatementDeriv]:
+def check_if(
+    s: If[InputType], env: Env, procs: ProcEnv
+) -> tuple[If[OutputType], StatementDeriv]:
     cond = check_expr(s.condition, env)
-    tArm = check_block(s.tArm, env)
-    fArm = check_block(s.fArm, env)
+    tArm = check_block(s.tArm, env, procs)
+    fArm = check_block(s.fArm, env, procs)
     d = IfDeriv(
         cd=_expr(cond), ld=_block(tArm), rd=_block(fArm), rt=None, then=SkipDeriv()
     )
@@ -116,21 +172,26 @@ def check_if(s: If[InputType], env: Env) -> tuple[If[OutputType], StatementDeriv
 
 
 def check_while(
-    s: While[InputType], env: Env
+    s: While[InputType], env: Env, procs: ProcEnv
 ) -> tuple[While[OutputType], StatementDeriv]:
     cond = check_expr(s.condition, env)
-    body = check_block(s.body, env)
+    body = check_block(s.body, env, procs)
     d = WhileDeriv(prior=SkipDeriv(), cd=_expr(cond), bd=_block(body), rt=None)
     return While(t=CheckedType(t=None, d=d), condition=cond, body=body), d
 
 
 def check_call(
-    s: ProcCall[InputType], env: Env
+    s: ProcCall[InputType], env: Env, procs: ProcEnv
 ) -> tuple[ProcCall[OutputType], StatementDeriv]:
-    # TODO: resolve procedure signatures
     dst = check_var(s.dst, env)
     func = check_var(s.func, env)
     args = [check_expr(a, env) for a in s.args]
+    sig = procs.get(s.func.name)
+    if sig is not None:
+        rt, rl = _nom(sig.rt)
+        _check_assignable(
+            dst, rt, rl, f"call to '{s.func.name}' destination '{dst.name}'"
+        )
     d = ProcCallDeriv(func=_var(func), ads=[_expr(a) for a in args], tail=SkipDeriv())
     return ProcCall(t=CheckedType(t=None, d=d), dst=dst, func=func, args=args), d
 
@@ -144,16 +205,16 @@ def check_return(
 
 
 def check_statement(
-    s: Statement[InputType], env: Env
+    s: Statement[InputType], env: Env, procs: ProcEnv
 ) -> tuple[Statement[OutputType], StatementDeriv]:
     if isinstance(s, Assign):
         return check_assign(s, env)
     if isinstance(s, If):
-        return check_if(s, env)
+        return check_if(s, env, procs)
     if isinstance(s, While):
-        return check_while(s, env)
+        return check_while(s, env, procs)
     if isinstance(s, ProcCall):
-        return check_call(s, env)
+        return check_call(s, env, procs)
     return check_return(s, env)
 
 
@@ -246,12 +307,12 @@ def _compose(
 
 
 def check_statements(
-    stmts: list[Statement[InputType]], env: Env
+    stmts: list[Statement[InputType]], env: Env, procs: ProcEnv
 ) -> tuple[list[Statement[OutputType]], StatementDeriv]:
     outs: list[Statement[OutputType]] = []
     ds: list[StatementDeriv] = []
     for s in stmts:
-        out, d = check_statement(s, env)
+        out, d = check_statement(s, env, procs)
         outs.append(out)
         ds.append(d)
 
@@ -264,7 +325,7 @@ def check_statements(
     return outs, chain
 
 
-def check_block(b: Block[InputType], env: Env) -> Block[OutputType]:
+def check_block(b: Block[InputType], env: Env, procs: ProcEnv) -> Block[OutputType]:
     local = dict(env)
     defs: list[Var[OutputType]] = []
     ds: list[VarDeriv] = []
@@ -273,13 +334,15 @@ def check_block(b: Block[InputType], env: Env) -> Block[OutputType]:
         defs.append(out)
         ds.append(d)
         local[v.name] = d
-    stmts, chain = check_statements(b.statements, local)
+    stmts, chain = check_statements(b.statements, local, procs)
     # TODO: returns
     bd = BlockDeriv(rt=None, localDefs=ds, statements=chain)
     return Block(t=CheckedType(t=None, d=bd), localDefs=defs, statements=stmts)
 
 
-def check_proc(p: Procedure[InputType], env: Env) -> Procedure[OutputType]:
+def check_proc(
+    p: Procedure[InputType], env: Env, procs: ProcEnv
+) -> Procedure[OutputType]:
     local = dict(env)
     args: list[Var[OutputType]] = []
     ads: list[VarDeriv] = []
@@ -288,7 +351,7 @@ def check_proc(p: Procedure[InputType], env: Env) -> Procedure[OutputType]:
         args.append(out)
         ads.append(d)
         local[a.name] = d
-    body = check_block(p.body, local)
+    body = check_block(p.body, local, procs)
     t, _ = _nom(p.rt)
     pd = ProcedureDeriv(
         name=p.name.name, args=ads, rt=LiteralDeriv(t or _UNKNOWN), body=_block(body)
@@ -312,14 +375,18 @@ def check_module(m: Module[InputType]) -> Module[OutputType]:
         defs.append(out)
         ds.append(d)
         env[v.name] = d
-    procs = [check_proc(p, env) for p in m.procs]
+    proc_env: ProcEnv = {p.name.name: p for p in m.procs}
+    checked_procs = [check_proc(p, env, proc_env) for p in m.procs]
     md = ModuleDeriv(
         name=m.name.name,
         defns=ds,
-        procs=[cast(ProcedureDeriv, p.t.d) for p in procs],
+        procs=[cast(ProcedureDeriv, p.t.d) for p in checked_procs],
     )
     return Module(
-        t=CheckedType(t=None, d=md), name=_name(m.name.name), defns=defs, procs=procs
+        t=CheckedType(t=None, d=md),
+        name=_name(m.name.name),
+        defns=defs,
+        procs=checked_procs,
     )
 
 

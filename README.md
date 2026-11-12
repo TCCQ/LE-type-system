@@ -142,7 +142,7 @@ produces. The CLI entry point is `__main__.py`; pass `--dump-ast` to
 pretty-print the parsed modules in source syntax:
 
 ```bat
-.venv\Scripts\python.exe __main__.py tests\good_simple.le --dump-ast
+.venv\Scripts\python.exe __main__.py tests\good_full.le --dump-ast
 ```
 
 `--dump-output-ast` prints the typechecked AST in the same source syntax
@@ -184,6 +184,9 @@ expected to handle, and each is wired into `tests/test_examples.py`:
 | `bad_theory.le`         | no  | EasyCrypt `theory` / `require` / `end` preamble — rejected by the lexer. |
 | `bad_operator.le`       | no  | An operator outside the BNF (`^`) — rejected by the lexer. |
 | `bad_syntax.le`         | no  | A missing `;` after a module variable — rejected by the parser. |
+
+`good_simple.le` parses but currently fails typechecking: the private `key`
+flows into the public local variable `out`. `good_full.le` typechecks.
 
 To add a new case, drop a file in `tests/` and register it in
 `tests/test_examples.py` (as a new `test_...` function for well-formed
