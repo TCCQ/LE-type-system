@@ -36,23 +36,28 @@ def _prove_block(top_goal: goal, block: BlockDeriv) -> proof:
 def _prove_statement(top_goal: goal, stmt: StatementDeriv) -> proof:
     if isinstance(stmt,AssignsDeriv):
         p = _prove_statement(top_goal, stmt.tail)
-        if stmt.after:
-            return f"wp.\n{p}"
+        n = len(stmt.asns)
+        if stmt.before:
+            return f"wp {n} {n}.\n{p}"
         else:
-            return f"sp.\n{p}"
+            return f"sp {n} {n}.\n{p}"
     elif isinstance(stmt,ReturnDeriv):
         return "(* TODO return statments *)"
     elif isinstance(stmt,IfDeriv):
         l = _prove_block(top_goal, stmt.ld)
         r = _prove_block(top_goal, stmt.rd)
         if isinstance(stmt.then, SkipDeriv):
-            t = "(* elided skip for an empty tail *)"
+            t = "(* elided skip for an empty tail for if rule  *)"
         else: 
             t = _prove_statement(top_goal, stmt.then)
         return f"if. (* if sync condition *) progress.\n(* if left *)\n{l}\n{t}\n(* if right *)\n{r}\n{t}"
     elif isinstance(stmt,WhileDeriv):
         b = _prove_block(top_goal, stmt.bd)
         p = _prove_statement(top_goal, stmt.prior)
+        # if isinstance(stmt.prior, SkipDeriv):
+        #     p = "(* elided skip for an empty prior for while rule *)"
+        # else: 
+        #     p = _prove_statement(top_goal, stmt.prior)
         return f"while ({top_goal}).\n(* while inv. holds *)\n{b}\n(* while prefix *)\n{p}"
     elif isinstance(stmt,ProcCallDeriv):
         p = _prove_statement(top_goal, stmt.tail)
@@ -62,7 +67,7 @@ def _prove_statement(top_goal: goal, stmt: StatementDeriv) -> proof:
     elif isinstance(stmt,OrderDeriv):
         f = _prove_statement(top_goal, stmt.first)
         s = _prove_statement(top_goal, stmt.second)
-        return f"seq 1.\n{f}\n{s}"
+        return f"seq 1 1 : ({top_goal}).\n(* seq first half *)\n{f}\n(* seq second half *)\n{s}"
     else:
         return ""
 

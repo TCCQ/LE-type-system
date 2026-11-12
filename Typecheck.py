@@ -186,7 +186,8 @@ def check_assign(
         PCAdjust(pc, _expr_label(right)),
         f"assignment to '{left.name}'",
     )
-    d = AssignsDeriv(asns=[(_var(left), _expr(right))], after=False, tail=SkipDeriv())
+    # A lone assignment has an empty prior and tail; emit `sp`, not `wp`.
+    d = AssignsDeriv(asns=[(_var(left), _expr(right))], before=False, tail=SkipDeriv())
     return Assign(t=CheckedType(t=None, d=d), left=left, right=right), d
 
 
@@ -294,7 +295,8 @@ def _build(
         after_asns: list[tuple[VarDeriv, Deriv]] = []
         for i in range(k, hi):
             after_asns.extend(_asns(ds[i]))
-        ad = AssignsDeriv(asns=after_asns, after=True, tail=wd)
+        # Trailing assignments have an empty tail; emit `sp`, not `wp`.
+        ad = AssignsDeriv(asns=after_asns, before=False, tail=wd)
         for i in range(k, hi):
             nodes[i] = ad
         return ad
@@ -326,7 +328,9 @@ def _build(
             leading_asns.extend(_asns(ds[j]))
             j += 1
         tail = _build(stmts, ds, j, hi, nodes)
-        ad = AssignsDeriv(asns=leading_asns, after=False, tail=tail)
+        ad = AssignsDeriv(
+            asns=leading_asns, before=not isinstance(tail, SkipDeriv), tail=tail
+        )
         for i in range(lo, j):
             nodes[i] = ad
         return ad

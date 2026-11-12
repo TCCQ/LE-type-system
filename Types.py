@@ -58,7 +58,7 @@ type Deriv = LiteralDeriv | VarDeriv | OptDeriv
 @dataclass
 class AssignsDeriv:
     asns: list[tuple[VarDeriv, Deriv]]
-    after: bool                 # true for tail then asns, false for asns then tail
+    before: bool                 # false for tail then asns, true for asns then tail
     tail: StatementDeriv
 
 @dataclass
