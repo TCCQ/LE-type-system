@@ -18,10 +18,11 @@ path if yours is elsewhere.
 .venv\Scripts\python.exe -m pytest tests -v
 ```
 
-The suite in `tests/test_examples.py` parses every file in `tests/`
+The suite in `tests/test_examples.py` embeds its example programs inline
 and asserts on the resulting AST (for the well-formed programs) or on
-the specific error and its source line (for the malformed ones). A green
-run looks like:
+the specific error and its source line (for the malformed ones). The
+original `.le` files are kept under `tests/examples/` for manual CLI runs.
+A green run looks like:
 
 ```
 tests/test_examples.py::test_good_simple_module_shape PASSED
@@ -30,11 +31,11 @@ tests/test_examples.py::test_good_full_module_shape PASSED
 tests/test_examples.py::test_good_full_compute_statement_layout PASSED
 tests/test_examples.py::test_good_full_elif_is_desugared_into_nested_if PASSED
 tests/test_examples.py::test_good_full_helper_and_go PASSED
-tests/test_examples.py::test_bad_file[bad_theory.le-...] PASSED
-tests/test_examples.py::test_bad_file[bad_operator.le-...] PASSED
-tests/test_examples.py::test_bad_file[bad_syntax.le-...] PASSED
+tests/test_examples.py::test_bad_source[bad_theory] PASSED
+tests/test_examples.py::test_bad_source[bad_operator] PASSED
+tests/test_examples.py::test_bad_source[bad_syntax] PASSED
 
-============================== 9 passed in 0.05s ==============================
+============================== 59 passed in 0.07s ==============================
 ```
 
 ### Run a single file
@@ -46,7 +47,7 @@ generated `.ec` temporary file, and prints the path.
 The EasyCrypt printer currently emits a TODO comment for some constructs.
 
 ```bat
-.venv\Scripts\python.exe __main__.py tests\good_full.le
+.venv\Scripts\python.exe __main__.py tests\examples\good_full.le
 :: C:\Users\...\Temp\le-xxxx.ec
 ```
 

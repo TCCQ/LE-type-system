@@ -1,0 +1,27 @@
+// REGRESSION: duplicate module name.
+//
+// Each module used to typecheck individually; the combined tempfile then
+// failed in EasyCrypt with:
+//
+//   [critical] ... the symbol M already exists
+//
+// The typechecker now rejects the program with DuplicateNameError.
+//
+// Repro:
+//   python3 __main__.py tests/counterexample_duplicate_module.le
+
+module M = {
+    var a : int :: public;
+
+    proc f() : unit = {
+        a <- 1;
+    }
+}
+
+module M = {
+    var b : int :: public;
+
+    proc g() : unit = {
+        b <- 1;
+    }
+}

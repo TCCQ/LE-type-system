@@ -1,0 +1,28 @@
+// COUNTEREXAMPLE: while followed by more statements.
+//
+// This parses, typechecks, and the generated module itself compiles.  The
+// full tempfile fails because the statement ordering requires Proof to emit a
+// `seq 1 1 : (...)` split; the first half's `sp 1 1.` over-consumes and
+// EasyCrypt reports:
+//
+//   [critical] ... 1 instruction(s) remaining on the left, change your [sp] bound
+//
+// Repro:
+//   python3 __main__.py tests/counterexample_while_assign_if.le
+//   easycrypt compile <printed tempfile>
+
+module M = {
+    var a : int :: public;
+    var b : int :: public;
+    var c : int :: public;
+
+    proc f() : unit = {
+        while (a < b) {
+            a <- a + 1;
+        }
+        a <- 0;
+        if (a < b) {
+            c <- 1;
+        }
+    }
+}

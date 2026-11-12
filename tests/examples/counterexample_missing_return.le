@@ -1,0 +1,20 @@
+// COUNTEREXAMPLE: non-unit procedure with no return.
+//
+// The LE parser and typechecker accept this even though `f` promises an int.
+// EasyCrypt rejects the generated module with:
+//
+//   [critical] ... This function must return a value
+//
+// (Return handling is still a TODO on the LE side, so this is also a missing
+// typechecker check rather than only a printer issue.)
+//
+// Repro:
+//   python3 __main__.py tests/counterexample_missing_return.le
+//   easycrypt compile <printed tempfile>
+
+module M = {
+    var a : int :: public;
+
+    proc f() : int = {
+    }
+}

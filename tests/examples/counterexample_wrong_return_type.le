@@ -1,0 +1,21 @@
+// COUNTEREXAMPLE: return value type does not match the procedure type.
+//
+// The LE parser and typechecker accept a unit procedure returning an int.
+// EasyCrypt rejects the generated module with:
+//
+//   [critical] ... This expression has type int but is expected to have type unit
+//
+// (Return handling is still a TODO on the LE side, so this is also a missing
+// typechecker check rather than only a printer issue.)
+//
+// Repro:
+//   python3 __main__.py tests/counterexample_wrong_return_type.le
+//   easycrypt compile <printed tempfile>
+
+module M = {
+    var a : int :: public;
+
+    proc f() : unit = {
+        return a;
+    }
+}

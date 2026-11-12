@@ -1,0 +1,25 @@
+// COUNTEREXAMPLE: if followed by an assignment.
+//
+// This parses, typechecks, and the generated module itself compiles.  The
+// full tempfile fails because Proof._prove_statement reuses the same tail
+// proof in both if branches; after the first branch's assignment, the
+// remaining instructions are not consumed and EasyCrypt reports:
+//
+//   [critical] ... left instruction list is not empty
+//
+// Repro:
+//   python3 __main__.py tests/counterexample_if_then_assign.le
+//   easycrypt compile <printed tempfile>
+
+module M = {
+    var a : int :: public;
+    var b : int :: public;
+    var c : int :: public;
+
+    proc f() : unit = {
+        if (a < b) {
+            c <- 1;
+        }
+        a <- 0;
+    }
+}

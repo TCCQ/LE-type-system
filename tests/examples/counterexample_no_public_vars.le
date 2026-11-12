@@ -1,0 +1,17 @@
+// COUNTEREXAMPLE: module with no public variables.
+//
+// This parses, typechecks, and the generated module itself compiles.  The
+// generated lemma is malformed because Proof._match renders the empty public
+// variable list as `={  }`, and EasyCrypt reports a parse error in the
+// equivalence statement.
+//
+// The same failure occurs when every module variable is private.
+//
+// Repro:
+//   python3 __main__.py tests/counterexample_no_public_vars.le
+//   easycrypt compile <printed tempfile>
+
+module M = {
+    proc f() : unit = {
+    }
+}

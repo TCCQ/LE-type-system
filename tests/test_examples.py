@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pathlib
 import sys
+from collections.abc import Iterator
 
 import pytest
 
@@ -24,35 +25,275 @@ from Ast import (
 from Lexer import LexError
 from Parser import ParseError, parse
 from Pretty import print_input, print_output_ec, print_output_max, print_output_min
-from Typecheck import ClearanceError, TypeMismatchError, check_program
+from Typecheck import (
+    ClearanceError,
+    DuplicateNameError,
+    TypeMismatchError,
+    UnknownTypeError,
+    check_program,
+)
+from Types import (
+    AssignsDeriv,
+    BlockDeriv,
+    IfDeriv,
+    OrderDeriv,
+    SkipDeriv,
+    StatementDeriv,
+    WhileDeriv,
+)
 
 
-EXAMPLES = PROJECT_ROOT / "tests"
+# ---------------------------------------------------------------------------
+# inline example sources
+# ---------------------------------------------------------------------------
+
+GOOD_SIMPLE = """\
+module Crypto = {
+    var key : int :: private;
+    var counter : int :: public;
+
+    proc encrypt(m : int) : int = {
+        var out : int;
+        out <- m + key;
+        return out;
+    }
+}
+"""
+
+GOOD_FULL = """\
+module M = {
+    var g : int :: public;
+    var result : int :: private;
+
+    proc compute(n : int) : int = {
+        var acc : int;
+        var i : int;
+        acc <- 0;
+        i <- 0;
+        while (i < n) {
+            acc <- acc + i;
+            i <- i + 1;
+        }
+
+        if (acc > 100) {
+            return acc;
+        } elif (acc > 50) {
+            return acc * 2;
+        } else {
+            return 0;
+        }
+    }
+
+    proc helper(x : int) : int = {
+        var tmp : int;
+        tmp <- x - 1;
+        return tmp;
+    }
+
+    proc go() : int = {
+        result <@ helper(5);
+        return result;
+    }
+}
+"""
+
+BAD_THEORY = """theory Example.
+require import Int.
+module M = {
+    var x : int :: private;
+}
+end Example.
+"""
+
+BAD_OPERATOR = """module M = {
+    var x : int :: public;
+    proc f(y : int) : int = {
+        x <- y ^ 1;
+        return x;
+    }
+}
+"""
+
+BAD_SYNTAX = """module M = {
+    var x : int :: public
+    proc f(y : int) : int = { return y; }
+}
+"""
+
+COUNTEREXAMPLE_ASSIGN_THEN_IF = """\
+module M = {
+    var a : int :: public;
+    var b : int :: public;
+    var c : int :: public;
+
+    proc f() : unit = {
+        a <- 0;
+        if (a < b) {
+            c <- 1;
+        }
+    }
+}
+"""
+
+COUNTEREXAMPLE_DUPLICATE_MODULE = """\
+module M = {
+    var a : int :: public;
+
+    proc f() : unit = {
+        a <- 1;
+    }
+}
+
+module M = {
+    var b : int :: public;
+
+    proc g() : unit = {
+        b <- 1;
+    }
+}
+"""
+
+COUNTEREXAMPLE_DUPLICATE_MODULE_VAR = """\
+module M = {
+    var a : int :: public;
+    var a : int :: public;
+
+    proc f() : unit = {
+        a <- 1;
+    }
+}
+"""
+
+COUNTEREXAMPLE_DUPLICATE_PROC = """\
+module M = {
+    var a : int :: public;
+
+    proc f() : unit = {
+        a <- 1;
+    }
+
+    proc f() : unit = {
+        a <- 2;
+    }
+}
+"""
+
+COUNTEREXAMPLE_IF_THEN_ASSIGN = """\
+module M = {
+    var a : int :: public;
+    var b : int :: public;
+    var c : int :: public;
+
+    proc f() : unit = {
+        if (a < b) {
+            c <- 1;
+        }
+        a <- 0;
+    }
+}
+"""
+
+COUNTEREXAMPLE_MISSING_RETURN = """\
+module M = {
+    var a : int :: public;
+
+    proc f() : int = {
+    }
+}
+"""
+
+COUNTEREXAMPLE_NO_PUBLIC_VARS = """\
+module M = {
+    proc f() : unit = {
+    }
+}
+"""
+
+COUNTEREXAMPLE_PROC_CALL = """\
+module M = {
+    var a : int :: public;
+
+    proc g() : int = {
+        return a + 1;
+    }
+
+    proc f() : unit = {
+        a <@ g();
+    }
+}
+"""
+
+COUNTEREXAMPLE_UNKNOWN_TYPE = """\
+module M = {
+    var u : mystery :: public;
+
+    proc f() : unit = {
+    }
+}
+"""
+
+COUNTEREXAMPLE_WHILE_ASSIGN_IF = """\
+module M = {
+    var a : int :: public;
+    var b : int :: public;
+    var c : int :: public;
+
+    proc f() : unit = {
+        while (a < b) {
+            a <- a + 1;
+        }
+        a <- 0;
+        if (a < b) {
+            c <- 1;
+        }
+    }
+}
+"""
+
+COUNTEREXAMPLE_WRONG_RETURN_TYPE = """\
+module M = {
+    var a : int :: public;
+
+    proc f() : unit = {
+        return a;
+    }
+}
+"""
 
 
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
 
-def _load(name: str) -> str:
-    path = EXAMPLES / name
-    assert path.is_file(), f"missing example file: {path}"
-    return path.read_text(encoding="utf-8")
-
-
-def _parse_good(name: str) -> list[Module]:
-    mods = parse(_load(name))
+def _parse_single(source: str) -> list[Module]:
+    mods = parse(source)
     assert isinstance(mods, list) and len(mods) == 1, \
-        f"{name}: expected exactly one module, got {mods!r}"
+        f"expected exactly one module, got {mods!r}"
     return mods
 
 
+def _assignment_derivations(stmt: StatementDeriv) -> Iterator[AssignsDeriv]:
+    if isinstance(stmt, AssignsDeriv):
+        yield stmt
+        yield from _assignment_derivations(stmt.tail)
+    elif isinstance(stmt, IfDeriv):
+        yield from _assignment_derivations(stmt.ld.statements)
+        yield from _assignment_derivations(stmt.rd.statements)
+        yield from _assignment_derivations(stmt.then)
+    elif isinstance(stmt, WhileDeriv):
+        yield from _assignment_derivations(stmt.prior)
+        yield from _assignment_derivations(stmt.bd.statements)
+    elif isinstance(stmt, OrderDeriv):
+        yield from _assignment_derivations(stmt.first)
+        yield from _assignment_derivations(stmt.second)
+
+
 # ---------------------------------------------------------------------------
-# good_simple.le
+# good_simple
 # ---------------------------------------------------------------------------
 
 def test_good_simple_module_shape():
-    [mod] = _parse_good("good_simple.le")
+    [mod] = _parse_single(GOOD_SIMPLE)
 
     assert isinstance(mod.name, Var)
     assert mod.name.name == "Crypto"
@@ -61,7 +302,7 @@ def test_good_simple_module_shape():
 
 
 def test_good_simple_encrypt_body():
-    [mod] = _parse_good("good_simple.le")
+    [mod] = _parse_single(GOOD_SIMPLE)
     [proc] = mod.procs
 
     assert [a.name for a in proc.args] == ["m"]
@@ -85,11 +326,11 @@ def test_good_simple_encrypt_body():
 
 
 # ---------------------------------------------------------------------------
-# good_full.le
+# good_full
 # ---------------------------------------------------------------------------
 
 def test_good_full_module_shape():
-    [mod] = _parse_good("good_full.le")
+    [mod] = _parse_single(GOOD_FULL)
 
     assert mod.name.name == "M"
     assert [d.name for d in mod.defns] == ["g", "result"]
@@ -97,7 +338,7 @@ def test_good_full_module_shape():
 
 
 def test_good_full_compute_statement_layout():
-    [mod] = _parse_good("good_full.le")
+    [mod] = _parse_single(GOOD_FULL)
     compute = next(p for p in mod.procs if p.name.name == "compute")
 
     # source: acc<-0; i<-0; while(...); if(...)
@@ -108,7 +349,7 @@ def test_good_full_compute_statement_layout():
 
 def test_good_full_elif_is_desugared_into_nested_if():
     """`elif` in the source becomes a nested `If` in the outer `If`'s fArm."""
-    [mod] = _parse_good("good_full.le")
+    [mod] = _parse_single(GOOD_FULL)
     compute = next(p for p in mod.procs if p.name.name == "compute")
     outer_if = compute.body.statements[-1]
 
@@ -119,7 +360,7 @@ def test_good_full_elif_is_desugared_into_nested_if():
 
 
 def test_good_full_helper_and_go():
-    [mod] = _parse_good("good_full.le")
+    [mod] = _parse_single(GOOD_FULL)
     helper = next(p for p in mod.procs if p.name.name == "helper")
     go = next(p for p in mod.procs if p.name.name == "go")
 
@@ -147,14 +388,20 @@ def test_good_full_helper_and_go():
 # pretty printing
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("filename", ["good_simple.le", "good_full.le"])
-def test_input_printer_round_trips(filename):
-    rendered = print_input(_parse_good(filename))
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(GOOD_SIMPLE, id="good_simple"),
+        pytest.param(GOOD_FULL, id="good_full"),
+    ],
+)
+def test_input_printer_round_trips(source):
+    rendered = print_input(_parse_single(source))
     assert print_input(parse(rendered)) == rendered
 
 
 def test_output_printer_matches_input():
-    parsed = _parse_good("good_full.le")
+    parsed = _parse_single(GOOD_FULL)
     rendered = print_input(parsed)
 
     checked = check_program(parsed)
@@ -228,8 +475,41 @@ module M = {
     assert rendered.endswith("return 0;\n    }\n}.")
 
 
+def test_assignment_before_if_uses_before_true_with_empty_if_tail():
+    parsed = parse(COUNTEREXAMPLE_ASSIGN_THEN_IF)
+    [mod] = check_program(parsed)
+    body = mod.procs[0].body.t.d
+    assert isinstance(body, BlockDeriv)
+
+    stmt = body.statements
+    assert isinstance(stmt, AssignsDeriv)
+    assert stmt.before is True
+    assert isinstance(stmt.tail, IfDeriv)
+    assert isinstance(stmt.tail.then, SkipDeriv)
+
+
+def test_single_assignment_while_body_uses_sp():
+    parsed = parse("""
+module M = {
+    var a : int :: public;
+    var b : int :: public;
+    proc f() : unit = {
+        while (a < b) {
+            a <- a + 1;
+        }
+    }
+}
+""")
+    rendered = print_output_max(check_program(parsed))
+
+    # before=True is the `sp` branch in Proof._prove_statement.
+    assert "AssignsDeriv(" in rendered
+    assert "before=True" in rendered
+    assert "before=False" not in rendered
+
+
 def test_deriv_printer_includes_derivation_tree():
-    parsed = _parse_good("good_full.le")
+    parsed = _parse_single(GOOD_FULL)
     rendered = print_output_max(check_program(parsed))
     assert "ModuleDeriv" in rendered
     assert "WhileDeriv" in rendered
@@ -242,7 +522,7 @@ def test_deriv_printer_includes_derivation_tree():
 
 def test_typecheck_rejects_private_to_public_assignment():
     with pytest.raises(ClearanceError):
-        check_program(_parse_good("good_simple.le"))
+        check_program(_parse_single(GOOD_SIMPLE))
 
 
 def test_typecheck_rejects_mismatched_assignment_types():
@@ -275,6 +555,196 @@ module M = {
 """)
     with pytest.raises(TypeMismatchError):
         check_program(parsed)
+
+
+def test_typecheck_rejects_duplicate_module_variable():
+    parsed = parse("""
+module M = {
+    var a : int :: public;
+    var a : bool :: private;
+    proc f() : unit = {
+    }
+}
+""")
+    with pytest.raises(DuplicateNameError):
+        check_program(parsed)
+
+
+def test_typecheck_rejects_duplicate_procedure():
+    parsed = parse("""
+module M = {
+    proc f() : unit = {
+    }
+    proc f() : unit = {
+    }
+}
+""")
+    with pytest.raises(DuplicateNameError):
+        check_program(parsed)
+
+
+def test_typecheck_rejects_duplicate_module():
+    parsed = parse("""
+module M = {
+    proc f() : unit = {
+    }
+}
+module M = {
+    proc g() : unit = {
+    }
+}
+""")
+    with pytest.raises(DuplicateNameError):
+        check_program(parsed)
+
+
+def test_typecheck_rejects_duplicate_arguments():
+    parsed = parse("""
+module M = {
+    proc f(x : int, x : int) : unit = {
+    }
+}
+""")
+    with pytest.raises(DuplicateNameError):
+        check_program(parsed)
+
+
+def test_typecheck_rejects_duplicate_local_variables():
+    parsed = parse("""
+module M = {
+    proc f() : unit = {
+        var x : int;
+        var x : int;
+    }
+}
+""")
+    with pytest.raises(DuplicateNameError):
+        check_program(parsed)
+
+
+def test_typecheck_rejects_local_variable_shadowing_argument():
+    parsed = parse("""
+module M = {
+    proc f(x : int) : unit = {
+        var x : int;
+    }
+}
+""")
+    with pytest.raises(DuplicateNameError):
+        check_program(parsed)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        """
+module M = {
+    var x : mystery :: public;
+    proc f() : unit = {
+    }
+}
+""",
+        """
+module M = {
+    proc f(x : mystery) : unit = {
+    }
+}
+""",
+        """
+module M = {
+    proc f() : mystery = {
+    }
+}
+""",
+        """
+module M = {
+    proc f() : unit = {
+        var x : mystery;
+    }
+}
+""",
+        """
+module M = {
+    var x : M.mystery :: public;
+    proc f() : unit = {
+    }
+}
+""",
+    ],
+)
+def test_typecheck_rejects_unknown_type_names(source):
+    with pytest.raises(UnknownTypeError):
+        check_program(parse(source))
+
+
+def test_typecheck_accepts_known_and_list_types():
+    parsed = parse("""
+module M = {
+    var xs : int list :: public;
+    var ys : bool list list :: private;
+    proc f(x : int list) : unit = {
+        var u : unit;
+    }
+}
+""")
+    check_program(parsed)
+
+
+@pytest.mark.parametrize(
+    "source, error",
+    [
+        pytest.param(
+            COUNTEREXAMPLE_DUPLICATE_MODULE_VAR,
+            DuplicateNameError,
+            id="duplicate_module_var",
+        ),
+        pytest.param(
+            COUNTEREXAMPLE_DUPLICATE_PROC,
+            DuplicateNameError,
+            id="duplicate_proc",
+        ),
+        pytest.param(
+            COUNTEREXAMPLE_DUPLICATE_MODULE,
+            DuplicateNameError,
+            id="duplicate_module",
+        ),
+        pytest.param(
+            COUNTEREXAMPLE_UNKNOWN_TYPE,
+            UnknownTypeError,
+            id="unknown_type",
+        ),
+    ],
+)
+def test_counterexample_sources_are_rejected_by_typechecker(source, error):
+    with pytest.raises(error):
+        check_program(parse(source))
+
+
+TYPECHECK_OK_SOURCES = [
+    ("good_full", GOOD_FULL),
+    ("assign_then_if", COUNTEREXAMPLE_ASSIGN_THEN_IF),
+    ("if_then_assign", COUNTEREXAMPLE_IF_THEN_ASSIGN),
+    ("missing_return", COUNTEREXAMPLE_MISSING_RETURN),
+    ("no_public_vars", COUNTEREXAMPLE_NO_PUBLIC_VARS),
+    ("proc_call", COUNTEREXAMPLE_PROC_CALL),
+    ("while_assign_if", COUNTEREXAMPLE_WHILE_ASSIGN_IF),
+    ("wrong_return_type", COUNTEREXAMPLE_WRONG_RETURN_TYPE),
+]
+
+
+@pytest.mark.parametrize("label, source", TYPECHECK_OK_SOURCES)
+def test_inline_examples_parse_and_typecheck(label, source):
+    check_program(parse(source))
+
+
+@pytest.mark.parametrize("label, source", TYPECHECK_OK_SOURCES)
+def test_assignments_with_empty_tail_never_use_before_false(label, source):
+    [mod] = check_program(parse(source))
+    for proc in mod.procs:
+        for d in _assignment_derivations(proc.body.t.d):
+            assert not (isinstance(d.tail, SkipDeriv) and d.before is False), (
+                f"{label}: assignment has tail=SkipDeriv and before=False: {d!r}"
+            )
 
 
 def test_typecheck_allows_public_to_private_assignment():
@@ -389,7 +859,7 @@ module M = {
 
 
 # ---------------------------------------------------------------------------
-# bad files
+# bad sources
 # ---------------------------------------------------------------------------
 # NOTE: we assert on `line` and on a substring of the message, but not on the
 # column.  Line numbers are stable across the source; columns are cheap to
@@ -398,23 +868,39 @@ module M = {
 # case if you want to check it, then add it here.
 
 @pytest.mark.parametrize(
-    "filename, exc_type, line, message_substr",
+    "source, exc_type, line, message_substr",
     [
-        ("bad_theory.le",   ParseError, 1, "theory blocks are not supported"),
-        ("bad_operator.le", LexError,   4, "exponentiation '^'"),
-        ("bad_syntax.le",   ParseError, 3,
-         "expected ';' after module variable definition"),
+        pytest.param(
+            BAD_THEORY,
+            ParseError,
+            1,
+            "theory blocks are not supported",
+            id="bad_theory",
+        ),
+        pytest.param(
+            BAD_OPERATOR,
+            LexError,
+            4,
+            "exponentiation '^'",
+            id="bad_operator",
+        ),
+        pytest.param(
+            BAD_SYNTAX,
+            ParseError,
+            3,
+            "expected ';' after module variable definition",
+            id="bad_syntax",
+        ),
     ],
 )
-def test_bad_file(filename, exc_type, line, message_substr):
+def test_bad_source(source, exc_type, line, message_substr):
     with pytest.raises(exc_type) as exc_info:
-        parse(_load(filename))
+        parse(source)
 
     err = exc_info.value
     assert err.line == line, (
-        f"{filename}: expected error on line {line}, got line {err.line} "
-        f"({err})"
+        f"expected error on line {line}, got line {err.line} ({err})"
     )
     assert message_substr in str(err), (
-        f"{filename}: expected {message_substr!r} in message {str(err)!r}"
+        f"expected {message_substr!r} in message {str(err)!r}"
     )

@@ -1,0 +1,22 @@
+// REGRESSION: duplicate procedure name.
+//
+// This used to pass the LE typechecker and then fail in EasyCrypt with:
+//
+//   [critical] ... the symbol f already exists
+//
+// The typechecker now rejects it with DuplicateNameError.
+//
+// Repro:
+//   python3 __main__.py tests/counterexample_duplicate_proc.le
+
+module M = {
+    var a : int :: public;
+
+    proc f() : unit = {
+        a <- 1;
+    }
+
+    proc f() : unit = {
+        a <- 2;
+    }
+}

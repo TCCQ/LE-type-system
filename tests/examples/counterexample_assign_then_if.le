@@ -1,0 +1,28 @@
+// COUNTEREXAMPLE: assignment followed by an if.
+//
+// Typechecking now produces the intended structure: a top-level AssignsDeriv
+// with before=True whose tail is an IfDeriv with an empty tail.
+//
+// With the current Proof.py mapping, before=True emits `wp 1 1.` before the
+// `if` proof, and EasyCrypt reports:
+//
+//   [critical] ... invalid first instruction
+//
+// The derivation is correct; the remaining failure is in proof generation.
+//
+// Repro:
+//   python3 __main__.py tests/counterexample_assign_then_if.le
+//   easycrypt compile <printed tempfile>
+
+module M = {
+    var a : int :: public;
+    var b : int :: public;
+    var c : int :: public;
+
+    proc f() : unit = {
+        a <- 0;
+        if (a < b) {
+            c <- 1;
+        }
+    }
+}
