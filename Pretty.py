@@ -46,6 +46,14 @@ _PREC = {
 _ATOM_PREC = 8
 _UNARY_PREC = 7
 
+# translation table for easycrypt's notation
+_EC_BINOP = {
+    "&&": "/\\",
+    "||": "\\/",
+    "/": "%/",
+    "%/": "%%",
+}
+
 
 class Printer[T]:
     """Pretty-print an AST whose nodes carry type information T.
@@ -217,6 +225,73 @@ class Printer[T]:
         return "\n".join(lines)
 
 
+class EcPrinter(Printer[OutputType]):
+    """Render a typechecked AST as an EasyCrypt module.
+
+    This is the minimal printer with the few syntactic differences EasyCrypt
+    requires: module variables are un-terminated and carry their visibility in
+    a comment, modules end in ``}.``, and operators are respelled.
+    """
+
+    def module(self, m: Module[OutputType]) -> str:
+        body = [f"var {d.name} : {self.ty(d.t)}{self.label(d.t)}" for d in m.defns]
+        if body and m.procs:
+            body.append("")
+        for i, p in enumerate(m.procs):
+            if i:
+                body.append("")
+            body.extend(self.procedure(p))
+        return "\n".join([f"module {m.name.name} = {{", *self._indent(body), "}."])
+
+    def procedure(self, p: Procedure[OutputType]) -> list[str]:
+        args = ", ".join(f"{a.name} : {self.ty(a.t)}" for a in p.args)
+        lines = [f"proc {p.name.name}({args}) : {self.ty(p.rt)} = {{"]
+        body = [f"var {d.name} : {self.ty(d.t)};" for d in p.body.localDefs]
+        stmts = p.body.statements
+        for i, s in enumerate(stmts):
+            if isinstance(s, Return) and i == len(stmts) - 1:
+                body.append(f"return {self.expression(s.val)};")
+            else:
+                body.extend(self.statement(s))
+        lines.extend(self._indent(body))
+        lines.append("}")
+        return lines
+
+    def _block_body(self, b: Block[OutputType]) -> list[str]:
+        lines: list[str] = []
+        if b.localDefs:
+            lines.append(
+                "(* TODO: EasyCrypt requires local variables to be declared "
+                "at the top of a procedure *)"
+            )
+        for s in b.statements:
+            lines.extend(self.statement(s))
+        return lines
+
+    def statement(self, s: Statement[OutputType]) -> list[str]:
+        if isinstance(s, Return):
+            return [
+                "(* TODO: EasyCrypt only allows a single return at the end "
+                "of a procedure *)"
+            ]
+        return super().statement(s)
+
+    def expression(self, e: Expr[OutputType]) -> str:
+        if isinstance(e, (Literal, Var)) or e.left is None:
+            return super().expression(e)
+
+        prec = _PREC.get(e.name, 0)
+        if e.name in (">", ">="):
+            op = "<" if e.name == ">" else "<="
+            left = self._expr_at(e.right, prec, right=False)
+            right = self._expr_at(e.left, prec, right=True)
+        else:
+            op = _EC_BINOP.get(e.name, e.name)
+            left = self._expr_at(e.left, prec, right=False)
+            right = self._expr_at(e.right, prec, right=True)
+        return f"{left} {op} {right}"
+
+
 def _input_type(t: InputType) -> str:
     return t.t.pt if isinstance(t, NominalType) else "?"
 
@@ -237,6 +312,12 @@ def _output_min_label(t: OutputType) -> str:
     return ""
 
 
+def _output_ec_label(t: OutputType) -> str:
+    if isinstance(t.d, VarDeriv) and isinstance(t.d.l, ClearenceLabel):
+        return "  (* public *)" if t.d.l.public else "  (* private *)"
+    return ""
+
+
 def print_program[T](
     modules: list[Module[T]],
     ty: Callable[[T], str],
@@ -251,6 +332,10 @@ def print_input(modules: list[Module[InputType]]) -> str:
 
 def print_output_min(modules: list[Module[OutputType]]) -> str:
     return print_program(modules, _output_min_type, _output_min_label)
+
+
+def print_output_ec(modules: list[Module[OutputType]]) -> str:
+    return EcPrinter(_output_min_type, _output_ec_label).program(modules)
 
 
 def print_output_max(modules: list[Module[OutputType]]) -> str:

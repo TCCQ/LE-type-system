@@ -23,7 +23,7 @@ from Ast import (
 )
 from Lexer import LexError
 from Parser import ParseError, parse
-from Pretty import print_input, print_output_max, print_output_min
+from Pretty import print_input, print_output_ec, print_output_max, print_output_min
 from Typecheck import ClearanceError, TypeMismatchError, check_program
 
 
@@ -160,6 +160,72 @@ def test_output_printer_matches_input():
     checked = check_program(parsed)
     assert print_output_min(checked) == rendered
     assert print_output_min(check_program(parse(rendered))) == rendered
+
+
+def test_ec_printer_matches_easycrypt_module_syntax():
+    parsed = parse("""
+module M = {
+    var x : int :: private;
+    var y : int :: public;
+    var z : int :: public;
+    proc f() : unit = {
+        if (y < z) {
+            x <- x + y;
+        } elif (y = z) {
+        } else {
+            while (z < y) {
+                x <- x + y;
+                y <- y - 1;
+            }
+        }
+    }
+}
+""")
+    rendered = print_output_ec(check_program(parsed))
+
+    assert "var x : int  (* private *)" in rendered
+    assert "var y : int  (* public *)" in rendered
+    assert ":: " not in rendered
+    assert "elif (y = z)" in rendered
+    assert rendered.endswith("}.")
+
+
+def test_ec_printer_respells_operators():
+    parsed = parse("""
+module N = {
+    var a : int :: public;
+    var b : int :: public;
+    var c : int :: public;
+    proc f() : unit = {
+        var x : int;
+        x <- (a / b) + (a %/ b);
+        if (b > c && a >= c || !(b = c)) {
+            c <- x;
+        }
+    }
+}
+""")
+    rendered = print_output_ec(check_program(parsed))
+
+    assert "x <- a %/ b + a %% b;" in rendered
+    assert "if (c < b /\\ c <= a \\/ !(b = c)) {" in rendered
+
+
+def test_ec_printer_marks_unsupported_early_return():
+    parsed = parse("""
+module M = {
+    proc f() : int = {
+        if (true) {
+            return 1;
+        }
+        return 0;
+    }
+}
+""")
+    rendered = print_output_ec(check_program(parsed))
+
+    assert "TODO: EasyCrypt only allows a single return" in rendered
+    assert rendered.endswith("return 0;\n    }\n}.")
 
 
 def test_deriv_printer_includes_derivation_tree():
