@@ -186,8 +186,7 @@ def check_assign(
         PCAdjust(pc, _expr_label(right)),
         f"assignment to '{left.name}'",
     )
-    # A lone assignment has an empty prior and tail; emit `sp`, not `wp`.
-    d = AssignsDeriv(asns=[(_var(left), _expr(right))], before=False, tail=SkipDeriv())
+    d = AssignsDeriv(asns=[(_var(left), _expr(right))], before=True, tail=SkipDeriv())
     return Assign(t=CheckedType(t=None, d=d), left=left, right=right), d
 
 
@@ -269,14 +268,12 @@ def _build(
         return SkipDeriv()
 
     seen_while = False
-    for j in range(lo, hi):
+    for j in range(lo, hi-1):
         if isinstance(stmts[j], While):
-            seen_while = True
-        elif seen_while and isinstance(stmts[j], (If, ProcCall)):
-            first = _build(stmts, ds, lo, j, nodes)
-            second = _build(stmts, ds, j, hi, nodes)
+            first = _build(stmts, ds, lo, j+1, nodes)
+            second = _build(stmts, ds, j+1, hi, nodes)
             return OrderDeriv(first=first, second=second)
-
+  
     if isinstance(stmts[hi - 1], While):
         prior = _build(stmts, ds, lo, hi - 1, nodes)
         wlocal = cast(WhileDeriv, ds[hi - 1])
@@ -295,7 +292,6 @@ def _build(
         after_asns: list[tuple[VarDeriv, Deriv]] = []
         for i in range(k, hi):
             after_asns.extend(_asns(ds[i]))
-        # Trailing assignments have an empty tail; emit `sp`, not `wp`.
         ad = AssignsDeriv(asns=after_asns, before=False, tail=wd)
         for i in range(k, hi):
             nodes[i] = ad
@@ -329,7 +325,7 @@ def _build(
             j += 1
         tail = _build(stmts, ds, j, hi, nodes)
         ad = AssignsDeriv(
-            asns=leading_asns, before=not isinstance(tail, SkipDeriv), tail=tail
+            asns=leading_asns, before=True, tail=tail
         )
         for i in range(lo, j):
             nodes[i] = ad

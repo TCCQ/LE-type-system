@@ -38,9 +38,9 @@ def _prove_statement(top_goal: goal, stmt: StatementDeriv) -> proof:
         p = _prove_statement(top_goal, stmt.tail)
         n = len(stmt.asns)
         if stmt.before:
-            return f"wp {n} {n}.\n{p}"
-        else:
             return f"sp {n} {n}.\n{p}"
+        else:
+            return f"wp {n} {n}.\n{p}"
     elif isinstance(stmt,ReturnDeriv):
         return "(* TODO return statments *)"
     elif isinstance(stmt,IfDeriv):
