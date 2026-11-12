@@ -25,12 +25,35 @@ class ClearanceError(TypecheckError):
     pass
 
 
+class UnknownTypeError(TypecheckError):
+    pass
+
+
+class DuplicateNameError(TypecheckError):
+    pass
+
+
+_KNOWN_BASE_TYPES = {"int", "bool", "unit"}
+
+
+def _check_prim_type(t: PrimType) -> None:
+    """Reject type names that have no declaration in the language."""
+    parts = t.pt.split()
+    if (
+        not parts
+        or parts[0] not in _KNOWN_BASE_TYPES
+        or any(part != "list" for part in parts[1:])
+    ):
+        raise UnknownTypeError(f"unknown type name: {t.pt}")
+
+
 def _ty(t: PrimType | None) -> CheckedType:
     return CheckedType(t=t, d=LiteralDeriv(t or _UNKNOWN))
 
 
 def _nom(t: InputType) -> tuple[PrimType | None, ClearenceLabel]:
     if isinstance(t, NominalType):
+        _check_prim_type(t.t)
         return t.t, t.label
     return None, _PUBLIC
 
@@ -346,7 +369,11 @@ def check_block(
     local = dict(env)
     defs: list[Var[OutputType]] = []
     ds: list[VarDeriv] = []
+    seen: set[str] = set()
     for v in b.localDefs:
+        if v.name in seen:
+            raise DuplicateNameError(f"duplicate local variable '{v.name}'")
+        seen.add(v.name)
         out, d = _decl(v)
         defs.append(out)
         ds.append(d)
@@ -363,11 +390,23 @@ def check_proc(
     local = dict(env)
     args: list[Var[OutputType]] = []
     ads: list[VarDeriv] = []
+    arg_names: set[str] = set()
     for a in p.args:
+        if a.name in arg_names:
+            raise DuplicateNameError(
+                f"procedure '{p.name.name}': duplicate argument '{a.name}'"
+            )
+        arg_names.add(a.name)
         out, d = _decl(a)
         args.append(out)
         ads.append(d)
         local[a.name] = d
+    for v in p.body.localDefs:
+        if v.name in arg_names:
+            raise DuplicateNameError(
+                f"procedure '{p.name.name}': local variable '{v.name}' "
+                "duplicates an argument"
+            )
     body = check_block(p.body, local, procs, _PUBLIC)
     t, _ = _nom(p.rt)
     pd = ProcedureDeriv(
@@ -388,10 +427,21 @@ def check_module(m: Module[InputType]) -> Module[OutputType]:
     defs: list[Var[OutputType]] = []
     ds: list[VarDeriv] = []
     for v in m.defns:
+        if v.name in env:
+            raise DuplicateNameError(
+                f"module '{m.name.name}': duplicate variable '{v.name}'"
+            )
         out, d = _decl(v)
         defs.append(out)
         ds.append(d)
         env[v.name] = d
+    proc_names: set[str] = set()
+    for p in m.procs:
+        if p.name.name in proc_names:
+            raise DuplicateNameError(
+                f"module '{m.name.name}': duplicate procedure '{p.name.name}'"
+            )
+        proc_names.add(p.name.name)
     proc_env: ProcEnv = {p.name.name: p for p in m.procs}
     checked_procs = [check_proc(p, env, proc_env) for p in m.procs]
     md = ModuleDeriv(
@@ -408,4 +458,9 @@ def check_module(m: Module[InputType]) -> Module[OutputType]:
 
 
 def check_program(ms: list[Module[InputType]]) -> list[Module[OutputType]]:
+    seen: set[str] = set()
+    for m in ms:
+        if m.name.name in seen:
+            raise DuplicateNameError(f"duplicate module '{m.name.name}'")
+        seen.add(m.name.name)
     return [check_module(m) for m in ms]
