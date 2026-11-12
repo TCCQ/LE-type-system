@@ -225,6 +225,103 @@ module M = {
     check_program(parsed)
 
 
+def test_typecheck_rejects_low_to_low_assignment_in_high_if():
+    parsed = parse("""
+module M = {
+    var secret : int :: private;
+    proc f() : int = {
+        var x : int;
+        if (secret > 0) {
+            x <- 1;
+        }
+        return x;
+    }
+}
+""")
+    with pytest.raises(ClearanceError):
+        check_program(parsed)
+
+
+def test_typecheck_rejects_low_to_low_assignment_in_high_while():
+    parsed = parse("""
+module M = {
+    var secret : int :: private;
+    proc f() : int = {
+        var x : int;
+        while (secret > 0) {
+            x <- 1;
+        }
+        return x;
+    }
+}
+""")
+    with pytest.raises(ClearanceError):
+        check_program(parsed)
+
+
+def test_typecheck_rejects_low_to_low_assignment_in_high_elif():
+    parsed = parse("""
+module M = {
+    var secret : int :: private;
+    var pub : int :: public;
+    proc f() : int = {
+        var x : int;
+        if (secret > 0) {
+            secret <- 1;
+        } elif (pub > 0) {
+            x <- 1;
+        }
+        return x;
+    }
+}
+""")
+    with pytest.raises(ClearanceError):
+        check_program(parsed)
+
+
+def test_typecheck_rejects_call_in_high_pc():
+    parsed = parse("""
+module M = {
+    var secret : int :: private;
+    proc g() : int = {
+        return 1;
+    }
+    proc f() : int = {
+        var x : int;
+        if (secret > 0) {
+            x <@ g();
+        }
+        return x;
+    }
+}
+""")
+    with pytest.raises(ClearanceError):
+        check_program(parsed)
+
+
+def test_typecheck_uses_pc_adjust_and_resets_pc_after_control_flow():
+    parsed = parse("""
+module M = {
+    var secret : int :: private;
+    var pub : int :: public;
+    proc f() : int = {
+        var x : int;
+        if (secret > 0) {
+            secret <- pub;
+        }
+        x <- 1;
+        while (secret > 0) {
+            secret <- pub;
+        }
+        x <- 2;
+        return x;
+    }
+}
+""")
+    checked = check_program(parsed)
+    assert "PCAdjust" in print_output_max(checked)
+
+
 # ---------------------------------------------------------------------------
 # bad files
 # ---------------------------------------------------------------------------

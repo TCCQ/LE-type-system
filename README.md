@@ -199,8 +199,8 @@ We need:
 
 - Parse the language into an AST (Done!)
 - check the AST for basic sanity
-- check the AST for low equivalence (disallow high to low assignment,
-    more to come)
+- check the AST for low equivalence (disallow high to low assignment and
+    high-clearance control flow into public targets; more to come)
 - produce a record of the checking process as a concrete piece of data
     (likely a recursive proof tree-ish value)
 - consume AST and produce easycrypt module definition of the same
